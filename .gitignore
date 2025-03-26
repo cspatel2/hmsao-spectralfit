@@ -1,0 +1,5 @@
+*.sav
+*-data
+*l1a*.nc
+*.png
+hms-aorigin*.nc
