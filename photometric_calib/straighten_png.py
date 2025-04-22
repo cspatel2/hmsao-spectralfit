@@ -229,10 +229,14 @@ def convert_gamma_to_zenithangle(ds: xr.Dataset, plot: bool = False, returnboth:
 
 
 # %%
-def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None, plot: bool = False):
+def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None,READNOISE = None, plot: bool = False):
     model = MisInstrumentModel.load(modelpath)
     predictor = MisCurveRemover(model)
     imgsize = (len(predictor.beta_grid), len(predictor.gamma_grid))
+    
+    # readnoise option
+    readnoise_ = None
+    rn_computed = {}
 
     if darkds is not None:
         darkds = xr.open_dataset(darkds)
@@ -255,6 +259,31 @@ def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None, plo
             dark = np.asarray(darkds['darkrate'].values, dtype=float)
             bias = np.asarray(darkds['bias'].values, dtype=float)
             data -= bias + dark * exp
+        elif readnoise_ is None and READNOISE is not None:
+            readnoise = np.full(
+                (imgsize[-1],imgsize[0]), READNOISE, dtype=float)
+            readnoise = Image.fromarray(readnoise)
+            readnoise = readnoise.rotate(-.311,
+                                            resample=Image.Resampling.BILINEAR, fillcolor=np.nan)
+            readnoise = readnoise.transpose(
+                Image.Transpose.FLIP_LEFT_RIGHT)
+            image = Image.new('F', imgsize, color=np.nan)
+            image.paste(readnoise, (110, 410))
+            readnoise = np.asarray(image).copy()
+            del image
+            readnoise = xr.DataArray(
+                readnoise,
+                dims=['gamma', 'beta'],
+                coords={
+                    'gamma': predictor.gamma_grid,
+                    'beta': predictor.beta_grid
+                },
+                attrs={'unit': 'ADU'}
+            )
+            for window in predictor.windows:
+                rn = predictor.straighten_image(
+                    readnoise, window, coord='Slit')
+                rn_computed[window] = convert_gamma_to_zenithangle(rn)
         # Counts -> counts/sec
         data = data/exp
         # rotate and flip
@@ -307,6 +336,8 @@ def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None, plo
                  ObservationLocation='LoCSST | Lowell, MA',
                  Note=f'data {is_dark_subtracted} dark corrected. \n Lamp calibration curve can be found in lightbox_calib_curve.nc',
                  ))
+        if readnoise is not None:
+            ds['noise'] = rn_computed[window] # readnoise]
         ds['intensity'].attrs['unit'] = 'ADU/s'
         encoding = {var: {'zlib': True}
                     for var in (*ds.data_vars.keys(), *ds.coords.keys())}
@@ -320,9 +351,9 @@ def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None, plo
 if __name__ == '__main__':
     darkds = None
     modelpath = '../../l1a_converter/hmsa_origin_ship.json'
-    fnames = glob('*light*.png')
+    fnames = glob('calib-data/raw/*light*.png')
     prefix = 'caliblamp_'
-    main(fnames=fnames, modelpath=modelpath, prefix=prefix, darkds=darkds)
+    main(fnames=fnames, modelpath=modelpath, prefix=prefix,READNOISE=6, darkds=darkds)
 # %%
 # ncfiles = glob('caliblamp_*.nc')
 # ds = xr.open_mfdataset(ncfiles[0])
@@ -331,4 +362,5 @@ if __name__ == '__main__':
 # # %%
 # ds.intensity.isel(idx = 0).plot(vmax = 20)
 
+# %%
 # %%

@@ -10,6 +10,8 @@ import os
 
 #%%
 def main(wl:str, calib_curve_fname: str, lamp_hmsimg_fname:str):
+    '''
+    returns a calibration factor dataset that converts from instrument dependent units (counts) to instrument independent units (Rayleighs). It uses the LBS lightbox calibration curve and caliblab_l1a data. '''
 
     if wl not in ['6563','4861','5577','6300','7774','4278']:
         raise ValueError('Wavelength not supported')
@@ -18,6 +20,7 @@ def main(wl:str, calib_curve_fname: str, lamp_hmsimg_fname:str):
     #get dataset that has l1a images of lamp 
     ds = xr.open_mfdataset(lamp_hmsimg_fname)
     countsds = ds.intensity.mean(dim='idx') #countrate (counts/s)
+    noise = ds.noise #countrate (counts/s)
     wlarray = countsds.wavelength.values #nm
 
     #interp brightness for wl array using calib curve
@@ -38,13 +41,19 @@ def main(wl:str, calib_curve_fname: str, lamp_hmsimg_fname:str):
     
 
     conversion_factor = brightness_grid/countsds.values #Rayleigh/countrate
+    conversion_error = conversion_factor * (noise.values/countsds.values) #rayleigh/countrate
     rateds = xr.Dataset(
-        data_vars=dict(conversion_factor=(['za','wavelength'], conversion_factor)),
+        data_vars=dict(
+            conversion_factor=(['za','wavelength'], conversion_factor),
+            conversion_error=(['za','wavelength'], conversion_error),
+                       ),
         coords=dict(za=('za',countsds.za.values),
                      wavelength=('wavelength', countsds.wavelength.values))
     )
     rateds.conversion_factor.attrs['units'] = 'Rayleigh/ CountRate'
     rateds.conversion_factor.attrs['long_name'] = 'Conversion Factor'
+    rateds.conversion_error.attrs['units'] = 'Rayleigh/ CountRate'
+    rateds.conversion_error.attrs['long_name'] = 'Error in Conversion Factor'
     rateds.wavelength.attrs['units'] = 'nm'
     rateds.za.attrs['units'] = 'deg'
     rateds.za.attrs['long_name'] = 'Zenith Angle'
