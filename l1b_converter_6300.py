@@ -7,7 +7,6 @@ from glob import glob
 import numpy as np
 import xarray as xr
 from sza import solar_zenith_angle
-from test_curvefit import spectral_fit
 from tqdm import tqdm
 
 from uncertainties import unumpy as un
@@ -17,7 +16,7 @@ from time import perf_counter_ns
 import sys
 # %%
 # inputs
-rootdir = 'test_data'
+rootdir = 'test_data/l1a'
 wavelength = '6300'
 sweden = {'lon': 20.41, 'lat': 67.84, 'elev': 420}  # deg, #deg, #m
 wlslice = slice(629.8, 631)  # 1st wl slice
@@ -180,7 +179,7 @@ saveds.exposure.attrs = exposure.attrs
 saveds.sza.attrs = sza.attrs
 
 # save dataset
-savedir = f'l1b'
+savedir = f'test_data/l1b'
 os.makedirs(savedir, exist_ok=True)
 sub_outfname = f'hms-aorigin_{date}_{wavelength}.nc'
 sub_outfpath = os.path.join(savedir, sub_outfname)

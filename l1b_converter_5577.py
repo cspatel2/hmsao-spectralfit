@@ -1,13 +1,13 @@
 
 # %%
 from datetime import datetime
+from pytz import timezone, UTC
 from itertools import chain
 import os
 from glob import glob
 import numpy as np
 import xarray as xr
 from sza import solar_zenith_angle
-from test_curvefit import spectral_fit
 from tqdm import tqdm
 
 from uncertainties import unumpy as un
@@ -18,7 +18,7 @@ import sys
 # %%
 # inputs
 plot = False
-rootdir = 'test_data'
+rootdir = 'test_data/l1a'
 wavelength = '5577'
 sweden = {'lon': 20.41, 'lat': 67.84, 'elev': 420}  # deg, #deg, #m
 wlslice = slice(557.25, 558.15)  # 1st wl slice
@@ -92,12 +92,12 @@ nds['sza'] = ('tstamp', [solar_zenith_angle(
 )
 nds.sza.attrs = {'units': 'deg', 'long_name': 'Solar Zenith Angle'}
 
-sza_astrodown = 108  # astronomincal dawn is 18deg below horizon
+sza_astrodown = 90 +18  # astronomincal dawn is 18deg below horizon
 # TODO: Daytime
 # daysza = slice(None, sza_astrodown)  # daytime, skip for now
 
 # nightime
-nds = nds.where(nds.sza > sza_astrodown, drop=True)
+nds = nds.where(nds.sza >= sza_astrodown, drop=True)
 sza = nds.sza
 exposure = nds.exposure
 ccdtemp = nds.ccdtemp
@@ -187,7 +187,7 @@ saveds.exposure.attrs = exposure.attrs
 saveds.sza.attrs = sza.attrs
 
 # save dataset
-savedir = f'l1b'
+savedir = f'test_data/l1b'
 os.makedirs(savedir, exist_ok=True)
 sub_outfname = f'hms-aorigin_{date}_{wavelength}.nc'
 sub_outfpath = os.path.join(savedir, sub_outfname)
@@ -204,7 +204,7 @@ plot = False
 if plot:
     za = 0
     x = saveds.tstamp.values
-    x = [datetime.fromtimestamp(t) for t in x]
+    x = [datetime.fromtimestamp(t,tz= UTC) for t in x]
     y = saveds.sel(za=za, method='nearest')
     plt.errorbar(x, y[f'{wavelength}'].values,
                  y['6300_err'].values, label=f'{wavelength}', color='red')
