@@ -56,7 +56,7 @@ if __name__ == '__main__':
     latitude = 67.84 
     elevation = 420 # Approximate elevation
 
-    test_date = datetime(2025, 4, 18, tzinfo=timezone.utc) 
+    test_date = datetime(2025, 1, 27, tzinfo=timezone.utc) 
     res = [test_date]
     for i in range(24*4):
         t = res[-1] + timedelta(minutes = 30)
@@ -71,6 +71,10 @@ if __name__ == '__main__':
     plt.xlabel('time (UTC)')
     plt.ylabel('Solar Zenith Angle (deg)')
     plt.title('Location: Kiruna, Sweden')
+    plt.ylim(np.max(sza)+5, np.min(sza)-5)
+    
 
 
 
+
+# %%
