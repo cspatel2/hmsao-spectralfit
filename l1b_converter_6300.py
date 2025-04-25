@@ -42,7 +42,7 @@ for key, bound in chain(feature_bounds.items(), bg_bounds.items()):
 
 # calibrated zenith angle slice
 za0, dza = 0, 10
-zaslice = slice(za0-dza, za0+za0)  # deg
+zaslice = slice(za0-dza, za0+dza)  # deg
 # %% Functions
 def get_date_from_fn(fn: str): return os.path.basename(fn).split('_')[1]
 
