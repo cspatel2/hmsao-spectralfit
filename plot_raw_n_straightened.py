@@ -16,6 +16,7 @@ from tqdm import tqdm
 usetex = False
 from datetime import datetime
 import pytz
+import sys
 
 if not usetex:
     # computer modern math text
@@ -28,7 +29,7 @@ mpl.rc('text', usetex=usetex)
 
 # %%
 
-def main(modelpath:str, fitsfname: str, wl: str):
+def main(modelpath:str, fitsfname: str, wl: str, darkds: xr.Dataset = None, READNOISE: float = None):
     model = MisInstrumentModel.load(modelpath)
     predictor = MisCurveRemover(model)
 
@@ -142,7 +143,7 @@ def main(modelpath:str, fitsfname: str, wl: str):
         nds = nds.rename({'gamma': 'za'})
         if plot:
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6), dpi=300)
-            fig.tight_layout()
+            fig.tight_layout(pad = 1)
 
             vmin = np.nanpercentile(ds.values, 1)
             vmax = np.nanpercentile(ds.values, 99)
@@ -162,21 +163,78 @@ def main(modelpath:str, fitsfname: str, wl: str):
 
 
     with fits.open(fitsfname) as hdul:
+        #IMAGE
         hdu = hdul['IMAGE']
         header = hdu.header
         tstamp = get_tstamp_from_hdu(hdu)  # s
         ststamp = datetime.fromtimestamp(tstamp, tz=pytz.utc)
         exposure = get_exposure_from_hdu(hdu)  # s
+        print(exposure)
         temp = header['CCD-TEMP']  # C
         imgsize = (len(predictor.beta_grid), len(predictor.gamma_grid))
         # 1. get img
         data = np.asarray(hdu.data, dtype=float)  # counts
-        # # 2. dark/bias correction
-        # if darkds is not None:
-        #     dark = np.asarray(
-        #         darkds['darkrate'].values, dtype=float)
-        #     bias = np.asarray(darkds['bias'].values, dtype=float)
-        #     data -= bias + dark * exposure  # counts
+        # 2. dark/bias correction
+        if darkds is not None:
+            dark = np.asarray(
+                darkds['darkrate'].values, dtype=float)
+            bias = np.asarray(darkds['bias'].values, dtype=float)
+            data -= bias + dark * exposure  # counts
+        elif READNOISE  is not None:
+            readnoise = np.full(
+                data.shape, READNOISE, dtype=float)
+            
+            readnoise = Image.fromarray(readnoise)
+
+            readnoise = readnoise.rotate(-.311,
+                                            resample=Image.Resampling.BILINEAR, fillcolor=np.nan)
+            readnoise = readnoise.transpose(
+                Image.Transpose.FLIP_LEFT_RIGHT)
+            image = Image.new('F', imgsize, color=np.nan)
+            image.paste(readnoise, (110, 410))
+            readnoise = np.asarray(image).copy()
+            del image
+            
+            readnoise_ = xr.DataArray(
+                readnoise/exposure,
+                dims=['gamma', 'beta'],
+                coords={
+                    'gamma': predictor.gamma_grid,
+                    'beta': predictor.beta_grid
+                },
+                attrs={'unit': 'ADU/s'}
+            )
+
+            imaps = predictor._imaps
+            rawnoise = None
+            for _, window, xform, coords, res in imaps:
+                if window.name == wl:
+                    xran = (coords['beta'].max(), coords['beta'].min())
+                    yran = (coords['gamma'].min(), coords['gamma'].max())
+                    rawnoise = readnoise_.sel(gamma=slice(*yran), beta=slice(*xran))
+                    # rawdata /= res
+
+
+            rawnoiseds = rawnoise.copy()
+
+                                
+        
+
+
+            readnoise = predictor.straighten_image(
+                readnoise_, wl, coord='Slit')
+            readnoise = convert_gamma_to_zenithangle(readnoise)
+            # 6. Save
+            readnoise = readnoise.expand_dims(
+                dim={'tstamp': (tstamp,)}).to_dataset(name='intensity', promote_attrs=True)
+            readnoise['exposure'] = xr.Variable(
+                dims='tstamp', data=[exposure], attrs={'unit': 's'}
+            )
+            readnoise['ccdtemp'] = xr.Variable(
+                dims='tstamp', data=[temp], attrs={'unit': 'C'}
+            )
+            
+            
         # 3. total counts -> counts.sec
         data = data/exposure  # counts/sec
         # 4. Crop and resize image
@@ -202,18 +260,17 @@ def main(modelpath:str, fitsfname: str, wl: str):
         imaps = predictor._imaps
     
         for _, window, xform, coords, res in imaps:
-            if window.name != wl:
-                continue
-            xran = (coords['beta'].max(), coords['beta'].min())
-            yran = (coords['gamma'].min(), coords['gamma'].max())
-            rawdata = data_.sel(gamma=slice(*yran), beta=slice(*xran))
-            # rawdata /= res
-            gamma = ('gamma', model._gamma_to_slit(model._gamma_from_image(model._gamma_from_mosaic(coords['gamma']))),
-                            {
-                    'coodinate': 'Slit',
-                    'unit': 'mm',
-                    'description': 'Height in the instrument coordinate.'
-                })
+            if window.name == wl:
+                xran = (coords['beta'].max(), coords['beta'].min())
+                yran = (coords['gamma'].min(), coords['gamma'].max())
+                rawdata = data_.sel(gamma=slice(*yran), beta=slice(*xran))
+                # rawdata /= res
+                gamma = ('gamma', model._gamma_to_slit(model._gamma_from_image(model._gamma_from_mosaic(coords['gamma']))),
+                                {
+                        'coodinate': 'Slit',
+                        'unit': 'mm',
+                        'description': 'Height in the instrument coordinate.'
+                    })
 
 
         data = predictor.straighten_image(
@@ -229,20 +286,38 @@ def main(modelpath:str, fitsfname: str, wl: str):
             dims='tstamp', data=[temp], attrs={'unit': 'C'}
         )
 
+    fig, [ax1,ax2] = plt.subplots(1,2,figsize = (10,6))
+    fig.subplots_adjust(wspace=.3) #wspace=1,
+    rawnoiseds.plot(ax = ax1)
+    # rawnoise.isel(beta = slice(None,None,1)).plot(ax = ax1)
+    ax1.set_title('Raw')
+    readnoise.intensity.isel(tstamp = 0).plot(ax = ax2)
+    ax2.set_title('Straightened')
+    w = int(wl)/10
+    fig.suptitle(f'Window {w:0.1f} Noise at {datetime.fromtimestamp(tstamp, tz = pytz.UTC)}')
+    plt.show()
+
     fig, [ax1,ax2] = plt.subplots(1,2,figsize = (10,6) )
+    fig.subplots_adjust(wspace=.3) #wspace=1,
     rawdata.isel(beta = slice(None,None,1)).plot(ax = ax1, vmax = 20)
     ax1.set_title('Raw')
     data.intensity.isel(tstamp = 0).plot(ax = ax2, vmax = 200)
     ax2.set_title('Straightened')
     w = int(wl)/10
-    fig.suptitle(f'Window {w:0.1f} at {datetime.fromtimestamp(tstamp)}')
+    fig.suptitle(f'Window {w:0.1f} at {datetime.fromtimestamp(tstamp, tz = pytz.UTC)}')
     plt.show()
+
+    del fig
+
+    
 # %%
 if __name__ == '__main__':
-    fn = 'test_data/20250118141143.641.fits'
+    fn = 'test_data/20250127194633.876.fits'
     w = '6300' 
     modelpath = '../l1a_converter/hmsa_origin_ship.json'
-    main(modelpath=modelpath, fitsfname=fn, wl=w)
+    main(modelpath=modelpath, fitsfname=fn, wl=w, READNOISE=6)
 
+
+# %%
 
 # %%
