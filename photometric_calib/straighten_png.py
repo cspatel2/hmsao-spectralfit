@@ -236,7 +236,6 @@ def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None,READ
     
     # readnoise option
     readnoise_ = None
-    rn_computed = {}
 
     if darkds is not None:
         darkds = xr.open_dataset(darkds)
@@ -245,7 +244,8 @@ def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None,READ
         is_dark_subtracted = 'is not'
 
     file = fnames[0]
-    output = {k: [] for k in predictor.windows}
+    out_countrate = {k: [] for k in predictor.windows}
+    out_noise = {k: [] for k in predictor.windows}
     for fidx, file in enumerate(tqdm(fnames)):
         # get image and exposure
         data = Image.open(file)
@@ -259,31 +259,7 @@ def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None,READ
             dark = np.asarray(darkds['darkrate'].values, dtype=float)
             bias = np.asarray(darkds['bias'].values, dtype=float)
             data -= bias + dark * exp
-        elif readnoise_ is None and READNOISE is not None:
-            readnoise = np.full(
-                (imgsize[-1],imgsize[0]), READNOISE, dtype=float)
-            readnoise = Image.fromarray(readnoise)
-            readnoise = readnoise.rotate(-.311,
-                                            resample=Image.Resampling.BILINEAR, fillcolor=np.nan)
-            readnoise = readnoise.transpose(
-                Image.Transpose.FLIP_LEFT_RIGHT)
-            image = Image.new('F', imgsize, color=np.nan)
-            image.paste(readnoise, (110, 410))
-            readnoise = np.asarray(image).copy()
-            del image
-            readnoise = xr.DataArray(
-                readnoise,
-                dims=['gamma', 'beta'],
-                coords={
-                    'gamma': predictor.gamma_grid,
-                    'beta': predictor.beta_grid
-                },
-                attrs={'unit': 'ADU'}
-            )
-            for window in predictor.windows:
-                rn = predictor.straighten_image(
-                    readnoise, window, coord='Slit')
-                rn_computed[window] = convert_gamma_to_zenithangle(rn)
+        
         # Counts -> counts/sec
         data = data/exp
         # rotate and flip
@@ -321,12 +297,40 @@ def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None,READ
                 ax.axvline(wl, color='red', lw=0.2, ls='--')
                 plt.show()
                 plt.close(fig)
-            output[window].append(data)
+            out_countrate[window].append(data)
+        
+        if readnoise_ is None and READNOISE is not None:
+            readnoise = np.full(data_.data.shape, READNOISE, dtype=float)
+            readnoise = Image.fromarray(readnoise)
+            readnoise = readnoise.rotate(-.311,
+                                            resample=Image.Resampling.BILINEAR, fillcolor=np.nan)
+            readnoise = readnoise.transpose(
+                Image.Transpose.FLIP_LEFT_RIGHT)
+            image = Image.new('F', imgsize, color=np.nan)
+            image.paste(readnoise, (110, 410))
+            readnoise = np.asarray(image).copy()
+            noise = np.sqrt(readnoise**2 + data_.data*exp)/exp
+            del image
+            noise = xr.DataArray(
+                noise,
+                dims=['gamma', 'beta'],
+                coords={
+                    'gamma': predictor.gamma_grid,
+                    'beta': predictor.beta_grid
+                },
+                attrs={'unit': 'ADU'}
+            )
+            for window in predictor.windows:
+                rn = predictor.straighten_image(noise, window, coord='Slit')
+                rn = convert_gamma_to_zenithangle(rn)
+                rn = rn.expand_dims(dim={'idx': (fidx,)}).to_dataset(name='noise', promote_attrs=True)
+                rn['exposure'] = xr.Variable(dims='idx', data = [exp], attrs={'unit': 's'})
+                out_noise[window].append(rn)
 
     # save to netcdf
     for window in predictor.windows:
         sub_outfpath = f'{prefix}_l1a_{window}.nc'
-        ds: xr.Dataset = xr.concat(output[window], dim='idx')
+        ds: xr.Dataset = xr.concat(out_countrate[window], dim='idx')
         ds['intensity'].attrs['unit'] = 'ADU/s'
         ds.attrs.update(
             dict(Description=" HMSA-O Straighted Image of Calibration Lamp",
@@ -337,30 +341,32 @@ def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None,READ
                  Note=f'data {is_dark_subtracted} dark corrected. \n Lamp calibration curve can be found in lightbox_calib_curve.nc',
                  ))
         if readnoise is not None:
-            ds['noise'] = rn_computed[window] # readnoise]
+            ds = ds.merge(xr.concat(out_noise[window], dim='idx'))
         ds['intensity'].attrs['unit'] = 'ADU/s'
+        ds['intensity'].attrs['long_name'] = 'Line Intensity'
+        ds['noise'].attrs['unit'] = 'ADU/s'
+        ds['noise'].attrs['long_name'] = 'Noise'
+        ds['noise'].attrs['eqn'] = r'Noise is given by sqrt{RN^2 + Counts}/exp'
         encoding = {var: {'zlib': True}
                     for var in (*ds.data_vars.keys(), *ds.coords.keys())}
         ds.to_netcdf(sub_outfpath, encoding=encoding)
 
-    del output
+    del out_countrate
 
 
-# %%
 # %%
 if __name__ == '__main__':
     darkds = None
     modelpath = '../../l1a_converter/hmsa_origin_ship.json'
     fnames = glob('calib-data/raw/*light*.png')
-    prefix = 'caliblamp_'
+    prefix = 'Ncaliblamp_'
     main(fnames=fnames, modelpath=modelpath, prefix=prefix,READNOISE=6, darkds=darkds)
 # %%
-# ncfiles = glob('caliblamp_*.nc')
+# ncfiles = glob('Ncaliblamp_*.nc')
 # ds = xr.open_mfdataset(ncfiles[0])
 # # %%
-# ds.intensity.mean(dim = 'idx').plot(vmax = 20)
+# ds.intensity.mean(dim = 'idx').plot(vmax = 5)
 # # %%
 # ds.intensity.isel(idx = 0).plot(vmax = 20)
 
-# %%
-# %%
+
