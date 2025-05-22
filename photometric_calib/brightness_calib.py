@@ -20,7 +20,7 @@ def main(wl:str, calib_curve_fname: str, lamp_hmsimg_fname:str):
     #get dataset that has l1a images of lamp 
     ds = xr.open_mfdataset(lamp_hmsimg_fname)
     countsds = ds.intensity.mean(dim='idx') #countrate (counts/s)
-    noise = ds.noise #countrate (counts/s)
+    noise = ds.noise.mean(dim = 'idx') #countrate (counts/s)
     wlarray = countsds.wavelength.values #nm
 
     #interp brightness for wl array using calib curve
