@@ -8,21 +8,20 @@ from glob import glob
 import numpy as np
 import xarray as xr
 from sza import solar_zenith_angle
-from tqdm import tqdm
 
-from uncertainties import unumpy as un
-from uncertainties import ufloat, UFloat
+
+
 import matplotlib.pyplot as plt
 from time import perf_counter_ns
 import sys
 # %%
 # inputs
 plot = False
-rootdir = 'test_data/l1a'
+rootdir = 'test_data/l1a/202501'
 wavelength = '5577'
 sweden = {'lon': 20.41, 'lat': 67.84, 'elev': 420}  # deg, #deg, #m
 wlslice = slice(557.25, 558.15)  # 1st wl slice
-# wl bounds for 6300, 6305 and background. source:test_intensity_by_sum_5577.py
+# wl bounds for 5577 and background. source:test_intensity_by_sum_5577.py
 feature_bounds = {
     f'{wavelength}': slice(557.555, 557.715)
 }
@@ -64,7 +63,7 @@ print(f'Date: {date} with {len(fnames)} files')
 # 1. open files
 # data
 ds = xr.open_mfdataset(fnames)
-ds = ds.assign(noise=ds.noise/ds.exposure)  # convert from photons -> photons/s
+# ds = ds.assign(noise=ds.noise/ds.exposure)  # convert from photons -> photons/s
 # calibration data
 calibfn = glob(f'photometric_calib/calib-data/*calib*{wavelength}*.nc')
 calibds = xr.open_dataset(calibfn[0])
@@ -73,18 +72,21 @@ nds = ds.copy()
 wl = int(wavelength)/10  # nm
 
 # 2. protometric calib, convert from photons/s -> Rayleighs
-noise = np.sqrt((calibds.conversion_error/calibds.conversion_factor)
-                ** 2 + (nds.noise/nds.intensity)**2)
+noise = nds.intensity*(np.sqrt((calibds.conversion_error/calibds.conversion_factor)
+                ** 2 + (nds.noise/nds.intensity)**2))
 nds = nds.assign(intensity=ds.intensity*calibds.conversion_factor)
 nds = nds.assign(noise=noise)
 
 
 if plot:
     plt.figure()
-    tds = nds.isel(tstamp=0).sel(za=0, method='nearest')
+    z = 0
+    tds = nds.isel(tstamp=1).sel(za=z, method='nearest')
     plt.errorbar(tds.wavelength.values, tds.intensity.values, tds.noise.values)
     plt.plot(tds.wavelength.values, tds.intensity.values, color='red')
-    plt.title('PLOT 1')
+    plt.xlabel('Wavelength [nm]')
+    plt.ylabel('Intensity [Rayleighs]')
+    plt.title(f'PLOT 1: {wavelength} A line Brightness at za = {z} deg')
 
 # 3. calc solar zenith angle (deg)
 nds['sza'] = ('tstamp', [solar_zenith_angle(
@@ -97,7 +99,7 @@ sza_astrodown = 90 +18  # astronomincal dawn is 18deg below horizon
 # daysza = slice(None, sza_astrodown)  # daytime, skip for now
 
 # nightime
-nds = nds.where(nds.sza >= sza_astrodown, drop=True)
+# nds = nds.where(nds.sza >= sza_astrodown, drop=True)
 sza = nds.sza
 exposure = nds.exposure
 ccdtemp = nds.ccdtemp
@@ -109,22 +111,24 @@ nds = nds.sel(wavelength=wlslice).sel(za=zaslice)
 
 
 def rms_func(data, axis=None):
-    return np.sqrt(np.mean(np.square(data), axis=axis))
+    return np.sqrt(np.sum(data**2, axis=axis))
 
 
-coarsen = nds.coarsen(za=4, boundary='pad')
-nds = coarsen.sum()  # intensity is summed
+zabin = int(np.ceil(1/np.mean(np.diff(nds.za.values))))
+print(zabin)
+coarsen = nds.coarsen(za=zabin, boundary='pad')
 nds = nds.assign(noise=coarsen.reduce(rms_func).noise)  # noise is rms(noise)
+nds = coarsen.sum()  # intensity is summed
 
 
 if plot:
     plt.figure()
-    tds = nds.isel(tstamp=0).sel(za=2, method='nearest')
+    tds = nds.isel(tstamp=1).sel(za=2, method='nearest')
     plt.errorbar(tds.wavelength.values, tds.intensity.values, tds.noise.values)
     plt.plot(tds.wavelength.values, tds.intensity.values, color='red')
     plt.title('PLOT 2')
 
-
+#%%
 # 5. background intensities and error by sum
 # should be the dataset for average background intensity of shape (tstamp, za)
 bck_ = []  # list of ds
@@ -134,32 +138,25 @@ for key, bound in bg_bounds.items():
     bds = nds.sel(wavelength=bound).sum(dim='wavelength')
     bds = bds.assign(noise=nds.sel(wavelength=bound).reduce(
         rms_func, dim='wavelength').noise)  # noise is rms(noise)
-    sds = bds.rename({'intensity': key, 'noise': f'{key}_err'})
-    sds[key].attrs = {'units': 'Rayleighs', 'long_name': f'{key} Brightness'}
-    sds[f'{key}_err'].attrs = {'units': 'Rayleighs',
-                               'long_name': f'{key} Brightness Error'}
-    bck_.append(sds)
-    del sds
-    if bckds is None:
-        bckds = bds
-    else:
-        # error propagation for average of the two background
-        noise = np.sqrt(bckds.noise**2 + bds.noise**2) / len(bg_bounds)
-        bckds += bds
-        bckds /= len(bg_bounds)  # average line intensity of two backgrounds
-        bckds = bckds.assign(noise=noise)
-    del bds
+    bck_.append(bds)
+#%%
+bckds = xr.concat(bck_, dim='idx')
+bckds = bckds.assign(noise = bckds['noise'].reduce(rms_func, dim='idx')/bckds.idx.size)
+bckds = bckds.assign(intensity = bckds['intensity'].mean(dim='idx'))
 
+#%%
 # 6. line intensities and error by sum
 line_ = []  # should be the dataset for line intensity of shape (tstamp, za)
 for key, bound in feature_bounds.items():
+    print(key)
     # sum all intensities in the wl slice for each za
     bds = nds.sel(wavelength=bound).sum(dim='wavelength')
     bds = bds.assign(noise=nds.sel(wavelength=bound).reduce(
         rms_func, dim='wavelength').noise)  # noise is rms(noise)
     # error propagation for line intensity
+    bds.noise
     noise = np.sqrt(bds.noise**2 + bckds.noise**2)
-    bds -= bckds  # subtract the average background
+    bds -= bckds.intensity  # subtract the average background
     bds = bds.assign(noise=noise)  # add the error to the line intensity
     bds = bds.rename({'intensity': key, 'noise': f'{key}_err'})
     bds[key].attrs = {'units': 'Rayleighs', 'long_name': f'{key} Brightness'}
@@ -168,12 +165,15 @@ for key, bound in feature_bounds.items():
     line_.append(bds)
 
 bckds = bckds.rename({'intensity': 'background', 'noise': 'background_err'})
+#%%
 bckds['background'].attrs = {'units': 'Rayleighs',
                              'long_name': 'Mean Background Brightness'}
 bckds['background_err'].attrs = {
     'units': 'Rayleighs', 'long_name': 'Mean Background Brightness Error'}
+
+#%%
 line_.append(bckds)
-line_ += bck_
+# line_ += bck_
 # 7. combine datasets
 saveds = xr.merge(line_)
 
@@ -200,22 +200,40 @@ saveds.to_netcdf(sub_outfpath, encoding=encoding)
 tend = perf_counter_ns()
 print(f'Done. [{(tend-tstart)*1e-9:.3f} s]')
 # %%
-plot = False
+plot = True
 if plot:
-    za = 0
+    za = -5
     x = saveds.tstamp.values
     x = [datetime.fromtimestamp(t,tz= UTC) for t in x]
     y = saveds.sel(za=za, method='nearest')
     plt.errorbar(x, y[f'{wavelength}'].values,
-                 y['6300_err'].values, label=f'{wavelength}', color='red')
-    plt.plot(x, y[f'{wavelength}_bg1']-y['background'].values,
-             label='bg1 res', color='cornflowerblue')
-    plt.plot(x, y[f'{wavelength}_bg2']-y['background'].values,
-             label='bg2 res', color='lightblue')
+                 y[f'{wavelength}_err'].values, label=f'{wavelength}', color='red')
+   
     plt.legend(loc='best')
     plt.xlabel('Time [UTC]')
     plt.ylabel('Intensity [Rayleighs]')
     plt.title(f'Line intensities at {za} deg')
 
+
+# %%
+d = saveds.isel(tstamp = 2)
+key = ['5577', 'background']
+for k in key:
+    plt.figure()
+    x = d[k].values
+    dx = d[f'{k}_err'].values
+    y = d.za.values
+
+    plt.errorbar(x,y,xerr=dx, yerr=None, fmt='-', label='5577', ecolor = 'red')
+
+
+# %%
+d['5577_err'].plot(y = 'za')
+# %%
+d['5577'].plot(y = 'za')
+# d['background'].plot(y = 'za')
+
+# %%
+ds.noise.isel(tstamp=1).plot(y = 'za', x = 'wavelength')
 
 # %%
