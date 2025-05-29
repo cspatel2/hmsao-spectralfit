@@ -164,17 +164,20 @@ def main():
         print('Root directory path provided is a file. Directory path required.')
         sys.exit()
     elif len(glob(os.path.join(args.rootdir, '*.nc'))) == 0 and len(os.listdir(args.rootdir)) == 0:
-        print('Root Directory is empty.') # exists but is empty
+        print('Root Directory is empty.')  # exists but is empty
         sys.exit()
-    elif len(glob(os.path.join(args.rootdir, '*.nc'))) == 0 and len(os.listdir(args.rootdir)) != 0:  
-        subdirs:Iterable = [f for f in os.listdir(args.rootdir) if os.path.isdir(os.path.join(args.rootdir,f))]
-    else: #.nc files are in this dir
+    elif len(glob(os.path.join(args.rootdir, '*.nc'))) == 0 and len(os.listdir(args.rootdir)) != 0:
+        subdirs: Iterable = [f for f in os.listdir(
+            args.rootdir) if os.path.isdir(os.path.join(args.rootdir, f))]
+    else:  # .nc files are in this dir
         subdirs = ['']
 
-    fpaths:Iterable = [os.path.join(args.rootdir, sd) for sd in subdirs]
-    valid_windows:Iterable = [w for w in args.windows for subdir in subdirs if len(glob(os.path.join(args.rootdir,subdir,f'*{w}*.nc'))) >0]
+    fpaths: Iterable = [os.path.join(args.rootdir, sd) for sd in subdirs]
+    valid_windows: Iterable = [w for w in args.windows for subdir in subdirs if len(
+        glob(os.path.join(args.rootdir, subdir, f'*{w}*.nc'))) > 0]
     # valid_windows = [w for w in args.windows for fp in fpaths if len(glob(os.path.join(fp, f'*{w}*.nc'))) > 0]
-    if len(valid_windows) == 0: sys.exit('No valid windows found in the root directory.')
+    if len(valid_windows) == 0:
+        sys.exit('No valid windows found in the root directory.')
     print(f'Valid windows to process: {valid_windows}')
     args.windows = valid_windows
 
@@ -218,16 +221,17 @@ def main():
 
         # DATES
         for subdir in subdirs:
-            dates:Iterable = [os.path.basename(f).split('_')[1] for f in glob(
-                os.path.join(args.rootdir,subdir,f'*{win}*.nc'))]
+            dates: Iterable = [os.path.basename(f).split('_')[1] for f in glob(
+                os.path.join(args.rootdir, subdir, f'*{win}*.nc'))]
             dates = np.unique(dates)
-        
-            dates.sort() # type: ignore
+
+            dates.sort()  # type: ignore
 
             # LEVEL 1B CONVERSION FOR EACH DATE
-            for yymmdd in tqdm(dates, desc=f'{win}'): # type: ignore
+            for yymmdd in tqdm(dates, desc=f'{win}'):  # type: ignore
                 # OUTFILE
-                yymm: str = datetime.strptime(yymmdd, '%Y%m%d').strftime('%Y%m')
+                yymm: str = datetime.strptime(
+                    yymmdd, '%Y%m%d').strftime('%Y%m')
                 outfn: str = os.path.join(
                     args.destdir, yymm, f'{args.dest_prefix}_{yymmdd}_{win}.nc')
                 os.makedirs(os.path.dirname(outfn), exist_ok=True)
@@ -245,21 +249,23 @@ def main():
 
                 # 0. Get data
                 fnames: Iterable = glob(os.path.join(
-                    args.rootdir,subdir, f'*{yymmdd}*{win}*.nc'))
+                    args.rootdir, subdir, f'*{yymmdd}*{win}*.nc'))
                 ds: xr.Dataset = xr.open_mfdataset(fnames)
                 nds: xr.Dataset = ds.copy()
                 wl: float = int(win)/10  # nm
 
                 # 1. Calc Solar Zenith Angle (sza)
                 nds['sza'] = ('tstamp', [solar_zenith_angle(t, lat=SWEDEN['lat'], lon=SWEDEN['lon'], elevation=SWEDEN['elev']) for t in ds.tstamp.values]
-                            )
-                nds.sza.attrs = {'units': 'deg', 'long_name': 'Solar Zenith Angle'}
+                              )
+                nds.sza.attrs = {'units': 'deg',
+                                 'long_name': 'Solar Zenith Angle'}
 
                 # 2. protometric calib, convert from photons/s -> Rayleighs
                 noise: xr.DataArray = nds.intensity * \
                     (np.sqrt((calibds.conversion_error/calibds.conversion_factor)
-                    ** 2 + (nds.noise/nds.intensity)**2))
-                nds = nds.assign(intensity=ds.intensity*calibds.conversion_factor)
+                             ** 2 + (nds.noise/nds.intensity)**2))
+                nds = nds.assign(intensity=ds.intensity *
+                                 calibds.conversion_factor)
                 nds = nds.assign(noise=noise)
 
                 # 3. remove unnecessary variables, add back to the final ds later
@@ -280,7 +286,8 @@ def main():
                 # select relevant za slice
                 nds = nds.sel(za=ZASLICE)
                 # binsize
-                ZABINSIZE: int = int(np.ceil(1.5/np.mean(np.diff(nds.za.values))))
+                ZABINSIZE: int = int(
+                    np.ceil(1.5/np.mean(np.diff(nds.za.values))))
                 # bin
                 coarsen = nds.coarsen(za=ZABINSIZE, boundary='trim')
                 nds = coarsen.sum()  # type: ignore  intensity is summed
@@ -293,13 +300,15 @@ def main():
                     # sum all intensities in the wl slice for each za
                     bds = nds.sel(wavelength=bound).sum(dim='wavelength')
                     bds = bds.assign(noise=nds.sel(wavelength=bound).reduce(
-                        rms_func, dim='wavelength').noise)  # noise is rms(noise)
+                        # noise is rms(noise)
+                        rms_func, dim='wavelength').noise)
                     bck_.append(bds)
                 bckds: xr.Dataset = xr.concat(bck_, dim='idx')
                 del bck_
                 bckds = bckds.assign(noise=bckds['noise'].reduce(
                     rms_func, dim='idx')/bckds.idx.size)
-                bckds = bckds.assign(intensity=bckds['intensity'].mean(dim='idx'))
+                bckds = bckds.assign(
+                    intensity=bckds['intensity'].mean(dim='idx'))
 
                 # 6B. line intensities (by sum) and background subtraction
                 line_: Iterable[xr.Dataset] = []
@@ -307,7 +316,8 @@ def main():
                     # sum all intensities in the wl slice for each za
                     bds = nds.sel(wavelength=bound).sum(dim='wavelength')
                     bds = bds.assign(noise=nds.sel(wavelength=bound).reduce(
-                        rms_func, dim='wavelength').noise)  # noise is rms(noise)
+                        # noise is rms(noise)
+                        rms_func, dim='wavelength').noise)
                     # error propagation for line intensity
                     noise = np.sqrt(bds.noise**2 + bckds.noise**2)
                     bds -= bckds.intensity  # subtract the average background
@@ -315,16 +325,16 @@ def main():
                     bds = bds.assign(noise=noise)
                     bds = bds.rename({'intensity': key, 'noise': f'{key}_err'})
                     bds[key].attrs = {'units': 'Rayleighs',
-                                    'long_name': f'{key} Å  Line Brightness'}
+                                      'long_name': f'{key} Å  Line Brightness'}
                     bds[f'{key}_err'].attrs = {'units': 'Rayleighs',
-                                            'long_name': f'{key} Å Line Brightness Error'}
+                                               'long_name': f'{key} Å Line Brightness Error'}
                     line_.append(bds)
 
                 # 7. prepare final dataset
                 # rename varirables
                 bckds = bckds.rename({'intensity': 'bg', 'noise': 'bg_err'})
                 bckds['bg'].attrs = {'units': 'Rayleighs',
-                                    'long_name': 'Mean Background Brightness'}
+                                     'long_name': 'Mean Background Brightness'}
                 bckds['bg_err'].attrs = {
                     'units': 'Rayleighs', 'long_name': 'Mean Background Brightness Error'}
                 # merge line and background datasets
@@ -341,12 +351,12 @@ def main():
 
                 saveds.attrs.update(
                     dict(Description=" HMSA-O line brightness",
-                        ROI=f'{wl} nm',
-                        DataProcessingLevel='1B',
-                        FileCreationDate=datetime.now().strftime("%m/%d/%Y, %H:%M:%S EDT"),
-                        ObservationLocation='Swedish Institute of Space Physics/IRF (Kiruna, Sweden)',
-                        Note=f'data background subtracted.',
-                        )
+                         ROI=f'{wl} nm',
+                         DataProcessingLevel='1B',
+                         FileCreationDate=datetime.now().strftime("%m/%d/%Y, %H:%M:%S EDT"),
+                         ObservationLocation='Swedish Institute of Space Physics/IRF (Kiruna, Sweden)',
+                         Note=f'data background subtracted.',
+                         )
                 )
 
                 # 8. save dataset
@@ -363,4 +373,3 @@ def main():
 if __name__ == '__main__':
     main()
 
-# %%
