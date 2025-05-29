@@ -254,7 +254,7 @@ def main(modelpath:str, fitsfname: str, wl: str, darkds: xr.Dataset = None, READ
                 'gamma': predictor.gamma_grid,
                 'beta': predictor.beta_grid
             },
-            attrs={'unit': 'ADU/s'}
+            attrs={'unit': 'ADU/s/pixel'}
         )
         # 5. straighten img
         imaps = predictor._imaps
