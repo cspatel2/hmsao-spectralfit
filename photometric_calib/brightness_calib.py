@@ -78,3 +78,5 @@ if __name__ == '__main__':
     for wl in ['6563','4861','5577','6300','7774','4278']:
         fnames = glob(os.path.join(datadir,f'*{wl}.nc'))
         main(wl = wl, calib_curve_fname=curvefn, lamp_hmsimg_fname= fnames)
+
+# %%
