@@ -172,10 +172,8 @@ def main():
     else:  # .nc files are in this dir
         subdirs = ['']
 
-    fpaths: Iterable = [os.path.join(args.rootdir, sd) for sd in subdirs]
-    valid_windows: Iterable = [w for w in args.windows for subdir in subdirs if len(
-        glob(os.path.join(args.rootdir, subdir, f'*{w}*.nc'))) > 0]
-    # valid_windows = [w for w in args.windows for fp in fpaths if len(glob(os.path.join(fp, f'*{w}*.nc'))) > 0]
+    valid_windows: Iterable = [w for w in args.windows for subdir in subdirs if len(glob(os.path.join(args.rootdir, subdir, f'*{w}*.nc'))) > 0]
+
     if len(valid_windows) == 0:
         sys.exit('No valid windows found in the root directory.')
     print(f'Valid windows to process: {valid_windows}')
@@ -348,6 +346,13 @@ def main():
                 saveds.ccdtemp.attrs = ccdtemp.attrs
                 saveds.exposure.attrs = exposure.attrs
                 saveds.sza.attrs = sza.attrs
+
+                saveds = saveds.assign_coords(dict(
+                    daybool = xr.where(saveds.sza> sza_astrodown, 1,0))
+                    )
+                saveds.daybool.attrs = dict(unit='Bool', 
+                                            description= 'True(1) if its daytime, False(0) if its nighttime. \n Astronomincal dawn is when the sun is 18 deg (sza = 90+18=108) below horizon.')
+
 
                 saveds.attrs.update(
                     dict(Description=" HMSA-O line brightness",
