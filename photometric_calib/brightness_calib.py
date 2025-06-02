@@ -1,4 +1,5 @@
 #%%
+from typing import Iterable
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
@@ -9,21 +10,25 @@ import os
 # %%
 
 #%%
-def main(wl:str, calib_curve_fname: str, lamp_hmsimg_fname:str):
+def main(wl:str, calib_curve_fname: str, lamp_hmsimg_fname:Iterable[str]):
     '''
     returns a calibration factor dataset that converts from instrument dependent units (counts) to instrument independent units (Rayleighs). It uses the LBS lightbox calibration curve and caliblab_l1a data. '''
 
     if wl not in ['6563','4861','5577','6300','7774','4278']:
-        raise ValueError('Wavelength not supported')
+        raise ValueError(f'Wavelength {wl} A not supported')
+    
+    def rms_func(data, axis=None):
+        return np.sqrt(np.sum(data**2, axis=axis))
 
 
     #get dataset that has l1a images of lamp 
-    ds = xr.open_mfdataset(lamp_hmsimg_fname)
+    ds = xr.open_mfdataset(lamp_hmsimg_fname)  # type: ignore
     countsds = ds.intensity.mean(dim='idx') #countrate (counts/s)
-    noise = ds.noise.mean(dim = 'idx') #countrate (counts/s)
+    noise = ds.noise.reduce(func =rms_func ,dim = 'idx') #countrate (counts/s) #type: ignore
+    noise /= len(ds.idx.values)
     wlarray = countsds.wavelength.values #nm
 
-    #interp brightness for wl array using calib curve
+    # interp brightness for wl array using calib curve
     calibds = xr.open_dataset(calib_curve_fname)
     x = wlarray * 10 #nm -> A
     xp = calibds['wavelength'].values #A
@@ -37,8 +42,6 @@ def main(wl:str, calib_curve_fname: str, lamp_hmsimg_fname:str):
     #image is straightened, so each row is same wavelength
     height,_ = countsds.shape
     brightness_grid = np.tile(brightness, (height,1)) #Rayleigh 
-
-    
 
     conversion_factor = brightness_grid/countsds.values #Rayleigh/countrate
     conversion_error = conversion_factor * (noise.values/countsds.values) #rayleigh/countrate
@@ -64,7 +67,8 @@ def main(wl:str, calib_curve_fname: str, lamp_hmsimg_fname:str):
         'date_created': str(datetime.now()),
         'Note': 'OG ' + ds.attrs['Note'].split('\n')[0].strip(' ')
     })
-    outfname = f'hmsao_photometric_calib_{wl}.nc'
+    outdir:str = os.path.dirname(lamp_hmsimg_fname[0]).split('/')[0] # type:ignore
+    outfname = os.path.join(outdir,f'hmsao_photometric_calib_{wl}.nc')
     print(f'saving {outfname}...')
     rateds.to_netcdf(outfname)
     print('Done.')
@@ -76,7 +80,7 @@ if __name__ == '__main__':
     curvefn = 'lightbox_calib_curve.nc'
     datadir = 'calib-data/l1a'
     for wl in ['6563','4861','5577','6300','7774','4278']:
-        fnames = glob(os.path.join(datadir,f'*{wl}.nc'))
+        fnames:Iterable[str] = glob(os.path.join(datadir,f'*{wl}.nc'))
         main(wl = wl, calib_curve_fname=curvefn, lamp_hmsimg_fname= fnames)
 
-# %%
+

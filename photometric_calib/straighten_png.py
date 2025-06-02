@@ -256,8 +256,8 @@ def main(fnames: List[str], modelpath: str, prefix: str, darkds: str = None,READ
         # dark subtraction
 
         if darkds is not None:
-            dark = np.asarray(darkds['darkrate'].values, dtype=float)
-            bias = np.asarray(darkds['bias'].values, dtype=float)
+            dark = np.asarray(darkds['darkrate'].values, dtype=float) #typo: ignore
+            bias = np.asarray(darkds['bias'].values, dtype=float) # type: ignore
             data -= bias + dark * exp
         
         # Counts -> counts/sec
@@ -359,7 +359,7 @@ if __name__ == '__main__':
     darkds = None
     modelpath = '../../l1a_converter/hmsa_origin_ship.json'
     fnames = glob('calib-data/raw/*light*.png')
-    prefix = 'Ncaliblamp_'
+    prefix = 'caliblamp_'
     main(fnames=fnames, modelpath=modelpath, prefix=prefix,READNOISE=6, darkds=darkds)
 # %%
 # ncfiles = glob('Ncaliblamp_*.nc')
@@ -370,3 +370,5 @@ if __name__ == '__main__':
 # ds.intensity.isel(idx = 0).plot(vmax = 20)
 
 
+
+# %%
