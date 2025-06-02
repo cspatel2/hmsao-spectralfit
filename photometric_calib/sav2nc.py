@@ -32,7 +32,7 @@ ds.attrs.update({'description': 'LBS calibration curve',
                  'calibration_time':' April 2017',
                 'source_file': 'lightbox_calib_curve.sav',
                 'history': 'created by sav2nc.py',
-               'file_creation_date': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')})
+               'file_creation_date': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S EDT')})
 
 ds.to_netcdf('lightbox_calib_curve.nc')
 # %%
