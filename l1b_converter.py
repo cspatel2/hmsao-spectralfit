@@ -19,43 +19,7 @@ from itertools import chain
 from datetime import datetime
 from pytz import timezone, UTC
 
-# %%
-
-
-def get_bounds_from_csv(csv_path: str, wavelength: str):
-    """
-    Get the bounds from the csv file.
-    """
-    with open(csv_path) as f:
-        bg_dict = {}
-        feature_dict = {}
-        za_dict = {}
-        for row in csv.reader(f):
-            key = row[0]
-            if key.startswith('#'):
-                continue
-            elif key.startswith(wavelength) and 'bg' in key:
-                bg_dict[key] = slice(float(row[1]), float(row[2]))
-            elif key.startswith(wavelength) and 'za' in key:
-                za_dict[key] = slice(float(row[1]), float(row[2]))
-            elif key.startswith(wavelength):
-                feature_dict[key] = slice(float(row[1]), float(row[2]))
-        if len(bg_dict) == 0 and len(feature_dict) == 0:
-            raise ValueError(f'No bounds found for {wavelength} in {csv_path}')
-    return feature_dict, bg_dict, za_dict
-
-
-def str2bool(value: str) -> bool:
-    if value.lower() in ('true', '1', 't', 'y', 'yes'):
-        return True
-    elif value.lower() in ('false', '0', 'f', 'n', 'no'):
-        return False
-    raise ValueError("Invalid boolean value: {}".format(value))
-
-
-def rms_func(data, axis=None):
-    return np.sqrt(np.sum(data**2, axis=axis))
-
+from util_functions import *
 
 # %%
 parser = argparse.ArgumentParser(
@@ -247,7 +211,7 @@ def main():
 
                 # 0. Get data
                 fnames: Iterable = glob(os.path.join(
-                    args.rootdir, subdir, f'*{yymmdd}*{win}*.nc'))
+                    args.rootdir, subdir, f'*{yymmdd}*l1a*{win}*.nc'))
                 ds: xr.Dataset = xr.open_mfdataset(fnames)
                 nds: xr.Dataset = ds.copy()
                 wl: float = int(win)/10  # nm
@@ -259,11 +223,8 @@ def main():
                                  'long_name': 'Solar Zenith Angle'}
 
                 # 2. protometric calib, convert from photons/s -> Rayleighs
-                noise: xr.DataArray = nds.intensity * \
-                    (np.sqrt((calibds.conversion_error/calibds.conversion_factor)
-                             ** 2 + (nds.noise/nds.intensity)**2))
-                nds = nds.assign(intensity=ds.intensity *
-                                 calibds.conversion_factor)
+                noise: xr.DataArray = nds.intensity * (np.sqrt((calibds.conversion_error/calibds.conversion_factor)** 2 + (nds.noise/nds.intensity)**2))
+                nds = nds.assign(intensity=ds.intensity * calibds.conversion_factor)
                 nds = nds.assign(noise=noise)
 
                 # 3. remove unnecessary variables, add back to the final ds later
@@ -285,7 +246,7 @@ def main():
                 nds = nds.sel(za=ZASLICE)
                 # binsize
                 ZABINSIZE: int = int(
-                    np.ceil(1.5/np.mean(np.diff(nds.za.values))))
+                    np.ceil(1/np.mean(np.diff(nds.za.values))))
                 # bin
                 coarsen = nds.coarsen(za=ZABINSIZE, boundary='trim')
                 nds = coarsen.sum()  # type: ignore  intensity is summed
