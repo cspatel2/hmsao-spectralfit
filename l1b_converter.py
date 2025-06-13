@@ -97,6 +97,13 @@ parser.add_argument(
     help='Photometric Calibration (Conversion Factor) .nc directory path.'
 )
 
+parser.add_argument(
+    '--zabinsize',
+    type = float,
+    default = None,
+    nargs = '?',
+    help = 'the binsize of Zenith Angle (za | y-axis) in deg. Defaults to 1.5 deg.'
+)
 # %%
 
 
@@ -149,6 +156,12 @@ def main():
         args.dest_prefix = 'hmsao-l1b'
     elif not args.dest_prefix and 'l1b' not in args.dest_prefix.lower():
         args.dest_prefix = f'{args.dest_prefix}-l1b'
+
+    # Zenith Angle bin size
+    if args.zabinsize is None:
+        args.zabinsize = 1.5
+    else:
+        args.zabinsize = float(args.zabinsize)
 
     for win in args.windows:
         # BOUNDS
@@ -246,7 +259,7 @@ def main():
                 nds = nds.sel(za=ZASLICE)
                 # binsize
                 ZABINSIZE: int = int(
-                    np.ceil(1/np.mean(np.diff(nds.za.values))))
+                    np.ceil(args.zabinsize/np.mean(np.diff(nds.za.values))))
                 # bin
                 coarsen = nds.coarsen(za=ZABINSIZE, boundary='trim')
                 nds = coarsen.sum()  # type: ignore  intensity is summed
