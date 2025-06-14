@@ -2,6 +2,7 @@
 import csv
 import numpy as np
 import xarray as xr
+from typing import Iterable
 
 
 
@@ -56,8 +57,10 @@ def align_spectra_core(sol: np.ndarray, sky: np.ndarray, wavelength: np.ndarray,
 
 def apply_alignment(sol_ds: xr.DataArray, sky_ds: xr.DataArray, offset:float = None) -> xr.DataArray:
     wl = sky_ds["wavelength"]
-    # sky_ds,sol_ds = xr.broadcast(sky_ds, sol_ds)
+    # sky_ds = sky_ds.drop_vars('tstamp')
+    # sol_ds = sol_ds.drop_vars('tstamp')
 
+    # sky_ds,sol_ds = xr.broadcast(sky_ds, sol_ds)
     aligned = xr.apply_ufunc(
         align_spectra_core,
         sol_ds['intensity'],
@@ -69,6 +72,9 @@ def apply_alignment(sol_ds: xr.DataArray, sky_ds: xr.DataArray, offset:float = N
         dask="parallelized",
         kwargs={"offset": offset},
         on_missing_core_dim="copy",
+        dask_gufunc_kwargs = {'allow_rechunk':True}
+        
+
     )
     return aligned
 
@@ -96,17 +102,18 @@ def solar_subtraction_core(sky:np.ndarray, sol:np.ndarray)->np.ndarray:
 
 
 def apply_solar_subtraction(sol_ds: xr.Dataset, sky_ds: xr.Dataset):
-    # _,sol_ds = xr.broadcast(sky_ds, sol_ds)
+
     if isinstance(sol_ds, xr.Dataset):
         sol_ds = sol_ds['intensity']
     
-    if isinstance(sky_ds, xr.DataArray):
-        sky_ds = sky_ds['intensity'] 
-
-    if 'tstamp' in list(sol.sizes.keys()):
-        sol_ds['tstamp'] = sky_ds.tstamp
-    else:
-        sol_ds = sol_ds.expand_dims(tstamp = sky_ds.tstamp.values)
+    if isinstance(sky_ds, xr.Dataset):
+        sky_ds = sky_ds['intensity']
+ 
+    # if 'tstamp' in list(sol_ds.sizes.keys()):
+    #     sol_ds['tstamp'] = sky_ds.tstamp
+    # else:
+    sol_ds = sol_ds.expand_dims(tstamp = sky_ds.tstamp.values)
+    # sol_ds['tstamp'] = sky_ds.tstamp
     
     
 
@@ -119,6 +126,7 @@ def apply_solar_subtraction(sol_ds: xr.Dataset, sky_ds: xr.Dataset):
         vectorize=True,
         dask="parallelized",
         on_missing_core_dim="copy",
+        dask_gufunc_kwargs = {'allow_rechunk':True}
     )
 
     return subtracted
