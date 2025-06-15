@@ -106,6 +106,15 @@ parser.add_argument(
 )
 
 parser.add_argument(
+   '--dates',
+    required= False,
+    type=list_of_strings,
+    default = None,
+    nargs = '?',
+    help = 'Dates to process in the format YYYYMMDD  (list seperated by commas).'
+)
+
+parser.add_argument(
     '--soldir',
     required=True,
     type=str,
@@ -215,6 +224,10 @@ def main():
             dates = np.unique(dates)
 
             dates.sort()  # type: ignore
+        
+        if args.dates is not None:
+            valid_dates = [d for d in args.dates if d in dates]
+            dates = valid_dates
 
             # LEVEL 1B CONVERSION FOR EACH DATE
             for yymmdd in tqdm(dates, desc=f'{win}'):  # type: ignore
