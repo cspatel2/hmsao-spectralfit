@@ -64,6 +64,8 @@ for win,bounds in infodict.items():
     ds.to_netcdf(f'wldrift_{win}.nc', mode='w', format='NETCDF4', engine='netcdf4')
     print(f'Saved to wldrift_{win}.nc')
 ###################################################################################
+#%%
+ds = xr.open_dataset('wldrift_6300.nc')
 
 # %%
 ## PLOT RED AND GREEN WAVELENGTH DRIFT
@@ -72,7 +74,7 @@ fig, ax = plt.subplots(1, 1, figsize=(6.4, 4.8), dpi=300,
                         tight_layout=True, squeeze=True)
 for win, color in infodict.items():
     ds = xr.open_dataset(f'wldrift_{win}.nc')
-    ds['peak_wl'] = ds['peak_wl'] - int(win)/10
+    ds['peak_wl'] = ds.peak_wl.isel(tstamp = 3).mean('za').values- ds['peak_wl'] 
     ds.peak_wl.mean(dim= 'za').plot(label=f'PeakWL - {int(win)/10:0.1f}', color=color, ax = ax)
 
 ax2 = ax.twinx()
@@ -102,7 +104,7 @@ tempds['datetime'] = np.array(tempds['datetime'], dtype='datetime64')
 win = '6300'
 COLOR = 'red'
 ds = xr.open_dataset(f'wldrift_{win}.nc')
-ds['peak_wl'] = ds['peak_wl'] - int(win)/10
+ds['peak_wl'] =ds['peak_wl'] = ds.peak_wl.isel(tstamp = -2).mean('za').values- ds['peak_wl'] 
 
 # nds = ds.sel(tstamp=slice('2025-01-20', '2025-03-15')) #FIRST HALF
 nds = ds.sel(tstamp=slice('2025-03-15','2025-06-01' )) #SECOND HALF
